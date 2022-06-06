@@ -1,29 +1,15 @@
+#~  m1.1: 
+#~ Continuous seeding 
+#~ Measurement model for seeded cases (travel associated) and endogenous
 
-f <- function(x) (2809 + 2000*x + 95*x^2) / 4904 
-fp <- function(x) (2000 + 2*95*x) / 4904
-fpp <- function(x) (2*95) / 4904
-fppp <- function(x) 0
-
-g <- function(x) (2943 + 1009*x + 477*x^2 + 475*x^3)/4904
-gp <- function(x) (1009 + 2*477*x^1 + 3*475*x^2)/4904
-gpp <- function(x) (2*477 + 2*3*475*x^1)/4904
-gppp <- function(x) (2*3*475)/4904
-
-hshape <- 0.26
-hrate <- 1.85 *7
-
-h <- function(x) (1-log(x)/hrate)^(-hshape)
-hp <- function(x) hshape *(1-log(x)/hrate)^(-hshape-1) / (  (hrate*x) )
-hpp <- function(x) hshape*((hrate-log(x))/hrate)^(-hshape) * (-hrate+hshape+log(x)+1) / (x^2 * (hrate-log(x))^2)
-hppp <- function(x) hshape*((hrate-log(x))/hrate)^(-hshape)  * (hshape^2+3*hshape+2*(hrate-log(x))^2 -3*(hrate-log(x))*(hshape+1)+2 ) / (x^3*(hrate-log(x))^3) 
 
 #' @export
-rstep1.0 <- function( thetaf, MSSf, MSIf, MIf
+rstep1.1 <- function( thetaf, MSSf, MSIf, MIf
 	, thetag, MSSg, MSIg, MIg
 	, thetah, MIh
 	, I, C, newC, cutf, cutg, cuth
 	
-	, beta,  gamma, etaf, etag,  N, i0, delta
+	, beta,  gamma, etaf, etag,  N, i0, delta, seedrate 
 	
 	, time
 	, ...) 
@@ -60,7 +46,7 @@ rstep1.0 <- function( thetaf, MSSf, MSIf, MIf
 	else
 		delta_si_g <- 0 
 	
-	transmh <- rpois(1, beta*MIh*N*hp(1) )
+	transmh <- rpois(1, beta*MIh*N*hp(1) + seedrate ) # seeding happens here 
 	dthetah <- -thetah * transmh / (N*hp(1)) 
 	dSh <- hp(thetah)*dthetah #note prop to transm
 	meanfield_delta_si_h = u1h <- (1 + thetah * hpp(thetah) / hp(thetah) ) #note + 1 for mfsh
@@ -115,7 +101,8 @@ rstep1.0 <- function( thetaf, MSSf, MSIf, MIf
 		+ ((-dSf)+(-dSg)) * (thetah*hp(thetah)/h(thetah)/hp(1))
 	
 	# infected, infectious and not detected: 
-	I <- max(0, I + transmf + transmg + transmh - gamma*I - delta*I)
+	newI <- transmf + transmg + transmh
+	I <- max(0, I + newI - gamma*I - delta*I)
 	# infected, infectious & detected case
 	C <- max(0, C + delta*I - gamma*C ) 
 	# new case detections
@@ -153,18 +140,33 @@ rstep1.0 <- function( thetaf, MSSf, MSIf, MIf
 }
 
 #' @export
-rmeas1.0 <- function(newC, ...){
-	c( Y = rpois(1, newC ) )
+rmeas1.1 <- function(newC,MSIf,MSIg,MIh,N,beta,seedrate, ...){
+	rf <- beta * 1.5/7# factor 1.5/7 is act rate per day; factor 1.5 b/c more contacts per week in long partnerships 
+	rg <- beta * 1/7
+	mftransm <- MSIf*N*fp(1)*rf + MSIg*N*gp(1)*rg + beta*MIh*N*hp(1)
+	Y <- rpois(length(newC), newC )
+	Ytravel <- rbinom( length(Y), size = Y, prob = seedrate / (seedrate + mftransm)  )  
+	
+	c( Ytravel = Ytravel,  Yendog = Y - Ytravel, Yunk = 0  )
 }
 
 #' @export 
-dmeas1.0 <- function(Y, newC, ..., log)
+dmeas1.1 <- function(Ytravel, Yendog, Yunk, newC, MSIf,  MSIg, MIh, N, beta, seedrate, ..., log)
 {
-	dpois( Y, lambda = newC, log = log )
+	rf <- beta * 1.5/7# factor 1.5/7 is act rate per day; factor 1.5 b/c more contacts per week in long partnerships 
+	rg <- beta * 1/7
+	mftransm <- MSIf*N*fp(1)*rf + MSIg*N*gp(1)*rg + beta*MIh*N*hp(1)
+	Y <- Ytravel + Yendog + Yunk
+	t1 <- dpois( Y, lambda = newC, log = log )
+	t2 <- ifelse(log,  0, 1)  
+	if ( (Ytravel + Yendog) > 0 ) 
+	  t2 <- dbinom( Ytravel , size = Ytravel + Yendog, prob = seedrate / (seedrate + mftransm) , log = log )
+	
+	ifelse( log, t1 + t2, t1 * t2 ) 
 }
 
 #' @export 
-rinit1.0 <- function(i0,N, ... ){
+rinit1.1 <- function(i0,N, ... ){
 	xinit <- i0 / N 
 	c(
 		thetaf = 1 
@@ -188,26 +190,27 @@ rinit1.0 <- function(i0,N, ... ){
 }
 
 #' @export 
-m1.0 <- pomp::pomp(
+m1.1 <- pomp::pomp(
 	t0 = 0 
 	, data = NULL
 	, times = seq( 0, 365 ) 
-	, rprocess = pomp::discrete_time(step.fun = rstep1.0)
-	, rmeasure = rmeas1.0
-	, dmeasure = dmeas1.0
-	, rinit = rinit1.0 
+	, rprocess = pomp::discrete_time(step.fun = rstep1.1)
+	, rmeasure = rmeas1.1
+	, dmeasure = dmeas1.1
+	, rinit = rinit1.1
 	, statenames = c('thetaf', 'MSSf', 'MSIf', 'MIf'
 		, 'thetag', 'MSSg', 'MSIg', 'MIg'
 		, 'thetah', 'MIh'
 		, 'I', 'C', 'newC', 'cutf', 'cutg', 'cuth'
 		)
 	, obsnames = c('Y')
-	, paramnames = c( 'beta', 'gamma', 'etaf', 'etag',  'N', 'i0', 'delta' )
+	, paramnames = c( 'beta', 'gamma', 'etaf', 'etag',  'N', 'i0', 'delta', 'seedrate' )
 	, params = c( beta = .75
 		, gamma = 0.1
 		, etaf = 1/200 ## Anderson Epidemiology 2021
 		, etag = 1/100 #Anderson Epidemiology 2021
 		, N =  .49 * 56.3 * (1-.24 ) * 1e6 * 0.02 # male*england(millions)*adult*msm
-		, i0 = 50
+		, i0 = 0
 		, delta = .4*.1/(1-.4))
+		, seedrate = 0.25
 )
