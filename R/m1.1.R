@@ -191,9 +191,9 @@ rinit1.1 <- function(i0,N, ... ){
 
 #' @export 
 m1.1 <- pomp::pomp(
-	t0 = 0 
+	t0 = 1
 	, data = NULL
-	, times = seq( 0, 365 ) 
+	, times = seq( 1, 365 ) 
 	, rprocess = pomp::discrete_time(step.fun = rstep1.1)
 	, rmeasure = rmeas1.1
 	, dmeasure = dmeas1.1
@@ -211,6 +211,7 @@ m1.1 <- pomp::pomp(
 		, etag = 1/100 #Anderson Epidemiology 2021
 		, N =  .49 * 56.3 * (1-.24 ) * 1e6 * 0.02 # male*england(millions)*adult*msm
 		, i0 = 0
-		, delta = .4*.1/(1-.4))
+		, delta = .4*.1/(1-.4)
 		, seedrate = 0.25
+		)
 )
