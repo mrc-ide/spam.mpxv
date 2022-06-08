@@ -1,8 +1,8 @@
 Package: spam.mpxv
 Type: Package
 Title: Stochastic pair approximation model for Monkeypox virus
-Version: 0.0.1
-Date: 2022-06-03
+Version: 0.0.2
+Date: 2022-06-07
 Author: Erik Volz
 Maintainer: Erik Volz <e.volz@imperial.ac.uk>
 Description: Implements a stochastic dynamic variable degree model within the edge-based-compartmental modelling framework. Three contact types based on duration of partnerships. 

@@ -1,45 +1,25 @@
+#~ m2: 
+#~ -seeding rate gaussian process 
+#~ -accumulate variables for fitting 
 
-f <- function(x) (2809 + 2000*x + 95*x^2) / 4904 
-fp <- function(x) (2000 + 2*95*x) / 4904
-fpp <- function(x) (2*95) / 4904
-fppp <- function(x) 0
+#~  m1.1: 
+#~ Continuous seeding 
+#~ Measurement model for seeded cases (travel associated) and endogenous
 
-g <- function(x) (2943 + 1009*x + 477*x^2 + 475*x^3)/4904
-gp <- function(x) (1009 + 2*477*x^1 + 3*475*x^2)/4904
-gpp <- function(x) (2*477 + 2*3*475*x^1)/4904
-gppp <- function(x) (2*3*475)/4904
-
-hshape <- 0.26
-hrate <- 1.85 *7
-
-h <- function(x) (1-log(x)/hrate)^(-hshape)
-hp <- function(x) hshape *(1-log(x)/hrate)^(-hshape-1) / (  (hrate*x) )
-hpp <- function(x) hshape*((hrate-log(x))/hrate)^(-hshape) * (-hrate+hshape+log(x)+1) / (x^2 * (hrate-log(x))^2)
-hppp <- function(x) hshape*((hrate-log(x))/hrate)^(-hshape)  * (hshape^2+3*hshape+2*(hrate-log(x))^2 -3*(hrate-log(x))*(hshape+1)+2 ) / (x^3*(hrate-log(x))^3) 
 
 #' @export
-calcR0.1.0 <- function(beta = 0.5, gamma = 0.1)
-{
-	rf <- beta * 1.5/7# factor 1.5/7 is act rate per day; factor 1.5 b/c more contacts per week in long partnerships 
-	rg <- beta * 1/7
-	pf = rf / (rf + gamma)
-	pg = rg / (rg + gamma)
-	#TODO add in eta terms 
-	(1+hpp(1)/hp(1)) * beta / gamma  + pg*gpp(1)/gp(1) + pf*fpp(1)/fp(1) 
-}
-#~ calcR0() 
-
-#' @export
-rstep1.0 <- function( thetaf, MSSf, MSIf, MIf
+rstep2.0 <- function( thetaf, MSSf, MSIf, MIf
 	, thetag, MSSg, MSIg, MIg
 	, thetah, MIh
-	, I, C, newC, cutf, cutg, cuth
+	, I, C, newC, cutf, cutg, cuth, cuts 
+	, seedrate
 	
-	, beta,  gamma, etaf, etag,  N, i0, delta
+	, beta,  gamma, etaf, etag,  N, i0, delta, seedrate0, seedrate_sd
 	
 	, time
 	, ...) 
 {
+	seedrate <- max(0, seedrate + rnorm (1, 0, sd = seedrate_sd  ) )
 	
 	MSf  <- thetaf * fp( thetaf ) / fp(1) 
 	MSg  <- thetag * gp( thetag ) / gp(1) 
@@ -72,8 +52,10 @@ rstep1.0 <- function( thetaf, MSSf, MSIf, MIf
 	else
 		delta_si_g <- 0 
 	
-	transmh <- rpois(1, beta*MIh*N*hp(1) )
-	dthetah <- -thetah * transmh / (N*hp(1)) 
+	
+	transmseed <- rpois( 1, seedrate ) 
+	transmh <- rpois(1, beta*MIh*N*hp(1) ) 
+	dthetah <- -thetah * (transmh + transmseed ) / (N*hp(1) ) # seeding happens here 
 	dSh <- hp(thetah)*dthetah #note prop to transm
 	meanfield_delta_si_h = u1h <- (1 + thetah * hpp(thetah) / hp(thetah) ) #note + 1 for mfsh
 	u2h <- hppp(thetah)*thetah^2/hp(thetah) + 2*thetah*hpp(thetah)/hp(thetah) + u1h 
@@ -127,15 +109,17 @@ rstep1.0 <- function( thetaf, MSSf, MSIf, MIf
 		+ ((-dSf)+(-dSg)) * (thetah*hp(thetah)/h(thetah)/hp(1))
 	
 	# infected, infectious and not detected: 
-	I <- max(0, I + transmf + transmg + transmh - gamma*I - delta*I)
+	newI <- transmf + transmg + transmh + transmseed 
+	I <- max(0, I + newI - gamma*I - delta*I)
 	# infected, infectious & detected case
 	C <- max(0, C + delta*I - gamma*C ) 
 	# new case detections
-	newC <- delta*I
+	newC <- newC + delta*I # will accumulate between obvs
 	# cumulative transm
 	cutf <- cutf + transmf
 	cutg <- cutg + transmg
 	cuth <- cuth + transmh
+	cuts <- cuts + transmseed 
 	
 	
 	
@@ -160,23 +144,46 @@ rstep1.0 <- function( thetaf, MSSf, MSIf, MIf
 		, cutf = cutf 
 		, cutg = cutg 
 		, cuth = cuth 
+		, cuts = cuts 
+		, seedrate = seedrate 
 	) 
 
 }
 
 #' @export
-rmeas1.0 <- function(newC, ...){
-	c( Y = rpois(1, newC ) )
+rmeas2.0 <- function(newC,MSIf,MSIg,MIh,seedrate,N,beta, ...){
+	rf <- beta * 1.5/7# factor 1.5/7 is act rate per day; factor 1.5 b/c more contacts per week in long partnerships 
+	rg <- beta * 1/7
+	mftransm <- MSIf*N*fp(1)*rf + MSIg*N*gp(1)*rg + beta*MIh*N*hp(1)
+	Y <- rpois(length(newC), newC )
+	Ytravel <- rbinom( length(Y), size = Y, prob = seedrate / (seedrate + mftransm)  )  
+	
+	c( Ytravel = Ytravel,  Yendog = Y - Ytravel, Yunk = 0  )
 }
 
 #' @export 
-dmeas1.0 <- function(Y, newC, ..., log)
+dmeas2.0 <- function(Ytravel, Yendog, Yunk, newC, MSIf,  MSIg, MIh, seedrate, N, beta,  ..., log)
 {
-	dpois( Y, lambda = newC, log = log )
+	rf <- beta * 1.5/7# factor 1.5/7 is act rate per day; factor 1.5 b/c more contacts per week in long partnerships 
+	rg <- beta * 1/7
+	mftransm <- MSIf*N*fp(1)*rf + MSIg*N*gp(1)*rg + beta*MIh*N*hp(1)
+	Y <- Ytravel + Yendog + Yunk
+	if ( newC == 0 & Y > 0 )
+		t1 <- ifelse( log, -Inf, 0 )
+	else
+		t1 <- dpois( Y, lambda = newC, log = log )
+	
+	t2 <- ifelse(log,  0, 1)  
+	if ( (Ytravel + Yendog) > 0 ) 
+		t2 <- dbinom( Ytravel , size = Ytravel + Yendog, prob = seedrate / (seedrate + mftransm) , log = log )
+	if ( is.na( t2 ))
+		t2 <- ifelse( log, -Inf, 0 )
+	
+	ifelse( log, t1 + t2, t1 * t2 ) 
 }
 
 #' @export 
-rinit1.0 <- function(i0,N, ... ){
+rinit2.0 <- function(i0,N,seedrate0, ... ){
 	xinit <- i0 / N 
 	c(
 		thetaf = 1 
@@ -195,31 +202,39 @@ rinit1.0 <- function(i0,N, ... ){
 		, cutf = 0 
 		, cutg = 0 
 		, cuth = 0 
+		, cuts = 0 
+		, seedrate = seedrate0
 		
 	)
 }
 
 #' @export 
-m1.0 <- pomp::pomp(
-	t0 = 0 
+m2.0 <- pomp::pomp(
+	t0 = 1
 	, data = NULL
-	, times = seq( 0, 365 ) 
-	, rprocess = pomp::discrete_time(step.fun = rstep1.0)
-	, rmeasure = rmeas1.0
-	, dmeasure = dmeas1.0
-	, rinit = rinit1.0 
+	, times = seq( 1, 365 ) 
+	, rprocess = pomp::discrete_time(step.fun = rstep2.0)
+	, rmeasure = rmeas2.0
+	, dmeasure = dmeas2.0
+	, rinit = rinit2.0
 	, statenames = c('thetaf', 'MSSf', 'MSIf', 'MIf'
 		, 'thetag', 'MSSg', 'MSIg', 'MIg'
 		, 'thetah', 'MIh'
-		, 'I', 'C', 'newC', 'cutf', 'cutg', 'cuth'
+		, 'I', 'C', 'newC', 'cutf', 'cutg', 'cuth', 'cuts'
+		, 'seedrate'
 		)
 	, obsnames = c('Y')
-	, paramnames = c( 'beta', 'gamma', 'etaf', 'etag',  'N', 'i0', 'delta' )
+	, paramnames = c( 'beta', 'gamma', 'etaf', 'etag',  'N', 'i0', 'delta', 'seedrate0', 'seedrate_sd' )
+	, accumvars = c('newC')
 	, params = c( beta = .75
 		, gamma = 0.1
 		, etaf = 1/200 ## Anderson Epidemiology 2021
 		, etag = 1/100 #Anderson Epidemiology 2021
 		, N =  .49 * 56.3 * (1-.24 ) * 1e6 * 0.02 # male*england(millions)*adult*msm
-		, i0 = 50
-		, delta = .4*.1/(1-.4))
+		, i0 = 0
+		, delta = .4*.1/(1-.4)
+		, seedrate0 = 0.75
+		, seedrate_sd = 0.05 
+		)
+		
 )
