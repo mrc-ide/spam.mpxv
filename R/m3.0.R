@@ -233,7 +233,7 @@ dmeas3.0 <- function(time, Ytravel, Yendog, Yunk, I, newI, MSIf,  MSIg, MIh, see
 {
 	Y <- Ytravel + Yendog + Yunk 
 	t1 <- ifelse( log, -Inf, 0 )
-	if ( I >= Y )
+	if ( newI >= Y )
 		t1 <- suppressWarnings(  dbinom(Y , size = ceiling(newI) , prob = delta, log = log ) )
 	if ( is.na( t1 ))
 		t1 <- ifelse( log, -Inf, 0 )
@@ -248,7 +248,9 @@ dmeas3.0 <- function(time, Ytravel, Yendog, Yunk, I, newI, MSIf,  MSIg, MIh, see
 	if ( is.na( t2 ))
 		t2 <- ifelse( log, -Inf, 0 )
 	
-	ifelse( log, t1 + t2, t1 * t2 ) 
+	rv = ifelse( log, t1 + t2, t1 * t2 ) 
+	#if ( is.infinite(rv))browser()
+	rv
 }
 
 #' @export 
