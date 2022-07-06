@@ -232,6 +232,8 @@ rmeas3.0 <- function(newI,MSIf,MSIg,MIh,seedrate,N,beta,delta, ...){
 dmeas3.0 <- function(time, Ytravel, Yendog, Yunk, I, newI, MSIf,  MSIg, MIh, seedrate, N, beta, delta, gamma,  ..., log)
 {
 	Y <- Ytravel + Yendog + Yunk 
+	if ( any( is.na( Y )) )
+		return( ifelse(log, 0, 1) )
 	t1 <- ifelse( log, -Inf, 0 )
 	if ( newI >= Y )
 		t1 <- suppressWarnings(  dbinom(Y , size = ceiling(newI) , prob = delta, log = log ) )
@@ -249,7 +251,7 @@ dmeas3.0 <- function(time, Ytravel, Yendog, Yunk, I, newI, MSIf,  MSIg, MIh, see
 		t2 <- ifelse( log, -Inf, 0 )
 	
 	rv = ifelse( log, t1 + t2, t1 * t2 ) 
-	#if ( is.infinite(rv))browser()
+	
 	rv
 }
 
