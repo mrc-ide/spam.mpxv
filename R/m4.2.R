@@ -88,11 +88,12 @@ rstep4.2 <- function( thetaf
 	, time
 	, ...) 
 {
+	N <- max( N, 1e4 ) # impose minimum pop size 
 	# vacc model 
 	## every vacc_freq days inoculate proportion vacc_amt with prob prop to degree
 	if (  (time>=vacc_start_day)  &  (time<=vacc_fin_day)  &  (( (time-vacc_start_day) %% vacc_freq) == 0) ){
-		amt_targetted <- vacc_targetted * vacc_amt 
-		amt_random <- (1-vacc_targetted) * vacc_amt 
+		amt_targetted <- vacc_targetted * vacc_amt / N  
+		amt_random <- (1-vacc_targetted) * vacc_amt / N
 		
 		S_vacc <- S_vacc * (1-amt_random)
 		MSEf <- MSEf * (1-amt_random) 
@@ -338,13 +339,10 @@ rstep4.2 <- function( thetaf
 
 #' @export
 rmeas4.2 <- function(newI,MSIf,MSIg,MIh,seedrate,N,beta, delta0, delta1, delta_slope, ...){
-	delta = delta0
-	rf <- beta * 1.5/7# factor 1.5/7 is act rate per day; factor 1.5 b/c more contacts per week in long partnerships 
-	rg <- beta * 1/7
-	mftransm <- MSIf*N*fp(1)*rf + MSIg*N*gp(1)*rg + beta*MIh*N*hp(1)
-	Y <- rbinom( length( newI), size =ceiling(newI), prob = delta )
-	Ytravel <- rbinom( length(Y), size = Y, prob = seedrate / (seedrate + mftransm)  )  
-	c( Ytravel = Ytravel,  Yendog = Y - Ytravel, Yunk = 0  )
+	delta <- max(.01, min( delta1, delta0 + delta_slope * time ) )
+	Yendog <- rbinom( length( newI), size =ceiling(newI), prob = delta )
+	Ytravel <- rbinom( length( newIseed ), size = ceiling( newIseed ), prob = delta ) 
+	c( Ytravel = Ytravel,  Yendog = Yendog, Yunk = 0  )
 }
 
 #' time-varying case ascertainment
@@ -362,10 +360,6 @@ dmeas4.2 <- function(time, Ytravel, Yendog, Yunk, I, newI, newIseed, MSIf,  MSIg
 		return( ifelse(log, -Inf, 0) )
 	if ( is.na( t1 ))
 		t1 <- ifelse( log, -Inf, 0 )
-	
-	rf <- beta * 1.5/7# factor 1.5/7 is act rate per day; factor 1.5 b/c more contacts per week in long partnerships 
-	rg <- beta * 1/7
-	mftransm <- MSIf*N*fp(1)*rf + MSIg*N*gp(1)*rg + beta*MIh*N*hp(1)
 	
 	t2 <- ifelse(log, 0, 1)  
 	if ( (Ytravel + Yendog) > 0 ) 
@@ -454,7 +448,7 @@ m4.2 <- pomp::pomp(
 		, gamma1 = 1/4
 		, etaf = 1/200 ## Anderson Epidemiology 2021
 		, etag = 1/100 #Anderson Epidemiology 2021
-		, N =  750e3 # 
+		, N =  750e3 # > 1e4 
 		, i0 = 0
 		, delta0 = .20
 		, delta1 = .80 
@@ -462,7 +456,7 @@ m4.2 <- pomp::pomp(
 		, seedrate0 = 0.75
 		, seedrate_sd = 3 #sd of random walk of daily diff in seedrate 
 		, vacc_freq = 1
-		, vacc_amt = 0.85*1040/750e3 # assuming about 30k doses over 30 days, 85% vacc eff 
+		, vacc_amt = 0.85*1040 # assuming about 30k doses over 30 days, 85% vacc eff 
 		, vacc_start_day = 91
 		, vacc_fin_day = 91+29 ##
 		, vacc_targetted = .8 # prop vacc targetted vs random 
