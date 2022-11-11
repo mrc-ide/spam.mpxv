@@ -59,6 +59,7 @@ hppp <- function(x) hshape*((hrate-log(x))/hrate)^(-hshape)  * (hshape^2+3*hshap
 
 
 poispgf <- function(x, z ) exp( z*(x-1))
+FGH_deltat <- function(x,etaf = 1/200,etag = 1/100, deltat = 90) f(poispgf(x,etaf*deltat)) * g(poispgf(x,etag*deltat)) * h(poispgf(x,deltat))
 
 
 
@@ -81,9 +82,11 @@ rstep4.2 <- function( thetaf
 	, theta_vacc # targetted vacc surv function
 	, S_vacc # random vacc surv function
 	, beta # now a state variable 
-	
+	, cumulative_partners
+		
 	, beta0, beta_freq, beta_sd,  gamma0, gamma1, etaf, etag,  N, i0, delta0, delta1, delta_slope, seedrate0, seedrate_sd
 	, vacc_freq, vacc_amt, vacc_start_day, vacc_fin_day, vacc_targetted ##
+	, cumulative_partners_days 
 	
 	, time
 	, ...) 
@@ -107,7 +110,7 @@ rstep4.2 <- function( thetaf
 		theta_vacc  <- unname( .update_theta_vacc4.2( theta_vacc, amt_targetted  ) )
 		red_f <- (theta_vacc*fp(theta_vacc )) / (theta_vacc0*fp(theta_vacc0) )
 		red_g <- (theta_vacc*gp(theta_vacc )) / (theta_vacc0*gp(theta_vacc0) )
-		MSEf <- MSEf * red_f ##? TODO should be greater for targetted vacc on g and f 
+		MSEf <- MSEf * red_f ##?  should be greater for targetted vacc on g and f 
 		MSSf <- MSSf * red_f^2
 		MSIf <- MSIf * red_f
 		MSEg <- MSEg * red_g
@@ -157,7 +160,7 @@ rstep4.2 <- function( thetaf
 		delta_si_f <- mean( rnorm( transmf, meanfield_delta_si_f , sd = sqrt(vf)) )
 	else
 		delta_si_f <- 0 
-	
+		
 	trateg <- max(0, MSIg*N*gp(1)*rg )
 	if ( is.na( trateg ) | is.infinite(trateg)  ) trateg <- 0 
 	transmg <- rpois(1, trateg)
@@ -170,12 +173,11 @@ rstep4.2 <- function( thetaf
 		delta_si_g <- mean( rnorm( transmg, meanfield_delta_si_g , sd = sqrt(vg)) )
 	else
 		delta_si_g <- 0 
-	
-	
+		
 	transmseed <- rpois( 1, seedrate ) 
 	
 	trateh <- max(0,  beta*MIh*N*hp(1)*S_vacc )
-	if ( is.na( trateh ) | is.infinite( trateh )) trateh <- 0 
+	if ( is.na( trateh ) | is.infinite( trateh ) ) trateh <- 0 
 	transmh <- rpois(1, trateh ) # note S_vacc here, because there is no MSI in MFSH model 
 	dthetah <- -.thetah * (transmh + transmseed ) / (N*hp(1) ) # seeding happens here 
 	dSh <- hp(.thetah)*dthetah #note prop to transm
@@ -190,6 +192,35 @@ rstep4.2 <- function( thetaf
 	else
 		delta_si_h <- 0 
 	
+	
+	# record mean and variance of cumulative partners over past x days among new infections
+#~ 	cumulative_partners <- (1+etaf*cumulative_partners_days)*meanfield_delta_si_f +  
+#~ 	  (1+etag*cumulative_partners_days)*meanfield_delta_si_g +  
+#~ 	  cumulative_partners_days * meanfield_delta_si_h
+	
+#~ 	cumulative_partners_variance <- (1+etaf*cumulative_partners_days)*meanfield_delta_si_f * vf +  
+#~ 	  (1+etag*cumulative_partners_days)*meanfield_delta_si_g * vg +  
+#~ 	  cumulative_partners_days * meanfield_delta_si_h * vh 
+	
+	tauf <- (transmf/(transmf+transmg+transmh+ transmseed)) 
+	taug <- (transmg/(transmf+transmg+transmh +transmseed)) 
+	tauh <- ((transmh+transmseed)/(transmf+transmg+transmh +transmseed)) 
+	
+	(1+etaf*cumulative_partners_days) * ( 
+		tauf * meanfield_delta_si_f + 
+		taug * .thetaf*fp(.thetaf)/f(.thetaf) + 
+		tauh * .thetaf*fp(.thetaf)/f(.thetaf)
+		) + 
+	(1+etag*cumulative_partners_days)* (
+		tauf * .thetag*gp(.thetag)/g(.thetag) + 
+		taug * meanfield_delta_si_g + 
+		tauh * .thetag*gp(.thetag)/g(.thetag)
+	) + 
+	cumulative_partners_days * (
+		tauf * .thetah*hp(.thetah)/h(.thetah) + 
+		taug * .thetah*hp(.thetah)/h(.thetah) + 
+		tauh * meanfield_delta_si_h
+	)  ->  cumulative_partners 
 	
 	dMSEf <- -gamma1*MSEf + 
 		+2 * etaf * MSf * MEf + 
@@ -331,6 +362,7 @@ rstep4.2 <- function( thetaf
 		, theta_vacc = theta_vacc 
 		, S_vacc = S_vacc
 		, beta = beta 
+		, cumulative_partners = cumulative_partners
 	) 
 #~ browser()
 	rv[ is.na(rv) ] <- 0
@@ -368,6 +400,7 @@ dmeas4.2 <- function(time, Ytravel, Yendog, Yunk, I, newI, newIseed, MSIf,  MSIg
 		t2 <- ifelse( log, -Inf, 0 )
 	
 	rv = ifelse( log, t1 + t2, t1 * t2 ) 
+#~ if ( time > 175 )
 #~ browser()
 	rv
 }
@@ -405,6 +438,7 @@ rinit4.2 <- function(i0,N,seedrate0,beta0, ... ){
 		, theta_vacc = 1 
 		, S_vacc = 1
 		, beta = beta0
+		, cumulative_partners = 0 
 	)
 }
 
@@ -433,14 +467,16 @@ m4.2 <- pomp::pomp(
 		, 'theta_vacc'
 		, 'S_vacc'
 		, 'beta'
+		, 'cumulative_partners'
 		)
 	, obsnames = c('Ytravel', 'Yendog', 'Yunk')	
 	, paramnames = c( 'beta0', 'beta_freq', 'beta_sd'
 		, 'gamma0', 'gamma1', 'etaf', 'etag',  'N', 'i0'
 		, 'delta0', 'delta1', 'delta_slope' 
 		, 'seedrate0', 'seedrate_sd' 
-		,  'vacc_freq', 'vacc_amt', 'vacc_start_day', 'vacc_fin_day' , 'vacc_targetted')
-	, accumvars = c('newI')
+		,  'vacc_freq', 'vacc_amt', 'vacc_start_day', 'vacc_fin_day' , 'vacc_targetted'
+		, 'cumulative_partners_days')
+	, accumvars = c('newI', 'newIseed')
 	, params = c( beta0 = 2.25
 		, beta_freq = 7
 		, beta_sd = 0.15  # 1 = 2*sqrt( (75/7)*sigma2 ) 
@@ -448,17 +484,47 @@ m4.2 <- pomp::pomp(
 		, gamma1 = 1/4
 		, etaf = 1/200 ## Anderson Epidemiology 2021
 		, etag = 1/100 #Anderson Epidemiology 2021
-		, N =  750e3 # > 1e4 
+		, N =  N # 
 		, i0 = 0
-		, delta0 = .20
-		, delta1 = .80 
+		, delta0 = .50
+		, delta1 = .50 
 		, delta_slope = 0.0
 		, seedrate0 = 0.75
-		, seedrate_sd = 3 #sd of random walk of daily diff in seedrate 
+		, seedrate_sd = 0.15 #sd of random walk of daily diff in seedrate 
 		, vacc_freq = 1
-		, vacc_amt = 0.85*1040 # assuming about 30k doses over 30 days, 85% vacc eff 
+		, vacc_amt = 0.65*50e3/vacc_duration # assuming about 50k doses by end of august , 65% one dose vacc eff 
 		, vacc_start_day = 91
-		, vacc_fin_day = 91+29 ##
+		, vacc_fin_day = 91+vacc_duration ##
 		, vacc_targetted = .8 # prop vacc targetted vs random 
-		)
+		, cumulative_partners_days = 90
+	)
 )
+
+spam_boot0 <- function( fitted, data, nrep = 500 , ncpu = 1, outdir = paste(sep='_','spam_boot0',Sys.Date()) )
+{
+	n <- with( data, sum( Ytravel + Yendog + Yunk ) )
+	data1 <- data [ , c('Ytravel', 'Yendog', 'Yunk') ]
+	pdata <- as.matrix( data1 / n  )
+	create.dir( outdir )
+	for ( i in 1:nrep )
+	{
+		x = rmultinom( 1, size=n , prob=as.vector( pdata ) )
+		p <- as.matrix( x, ncol = 3 ,byrow=FALSE)
+		data2 <- data
+		data2$Ytravel <- data[,1] 
+		data2$Yendog <- data[,2] 
+		data2$Yunk <- data[,3] 
+		m <- pomp( fitted, data = data )
+		f <- mif2( m
+			, Nmif = 25
+			, cooling.fraction = .95
+			, Np = 2000 
+			, verbose = TRUE 
+		)
+		f |> continue( Nmif = 10, cooling.fraction = .8 ) |> continue( Nmif = 10, cooling.fraction = .5 ) |> continue( Nmif = 10, cooling.fraction = .2 ) -> f
+		pf1 <- pfilter( f, Np = 5e3, filter.mean=TRUE )
+		saveRDS( list(fitted = f, filtered = pf1), file = glue('{outdir}/{i}.rds') )
+
+	}
+	
+}
