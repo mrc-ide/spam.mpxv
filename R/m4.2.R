@@ -194,13 +194,6 @@ rstep4.2 <- function( thetaf
 	
 	
 	# record mean and variance of cumulative partners over past x days among new infections
-#~ 	cumulative_partners <- (1+etaf*cumulative_partners_days)*meanfield_delta_si_f +  
-#~ 	  (1+etag*cumulative_partners_days)*meanfield_delta_si_g +  
-#~ 	  cumulative_partners_days * meanfield_delta_si_h
-	
-#~ 	cumulative_partners_variance <- (1+etaf*cumulative_partners_days)*meanfield_delta_si_f * vf +  
-#~ 	  (1+etag*cumulative_partners_days)*meanfield_delta_si_g * vg +  
-#~ 	  cumulative_partners_days * meanfield_delta_si_h * vh 
 	
 	tauf <- (transmf/(transmf+transmg+transmh+ transmseed)) 
 	taug <- (transmg/(transmf+transmg+transmh +transmseed)) 
