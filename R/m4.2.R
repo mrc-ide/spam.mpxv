@@ -357,13 +357,13 @@ rstep4.2 <- function( thetaf
 		, beta = beta 
 		, cumulative_partners = cumulative_partners
 	) 
-#~ browser()
 	rv[ is.na(rv) ] <- 0
 	rv
 }
 
 #' @export
-rmeas4.2 <- function(newI,MSIf,MSIg,MIh,seedrate,N,beta, delta0, delta1, delta_slope, ...){
+rmeas4.2 <- function(newI,MSIf,MSIg,MIh,newIseed, seedrate,N,beta, delta0, delta1, delta_slope, ...){
+	time <- 0
 	delta <- max(.01, min( delta1, delta0 + delta_slope * time ) )
 	Yendog <- rbinom( length( newI), size =ceiling(newI), prob = delta )
 	Ytravel <- rbinom( length( newIseed ), size = ceiling( newIseed ), prob = delta ) 
